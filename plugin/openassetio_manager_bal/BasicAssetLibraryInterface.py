@@ -36,7 +36,7 @@ from openassetio.access import (
     kAccessNames,
 )
 from openassetio.errors import BatchElementError, ConfigurationException
-from openassetio.managerApi import ManagerInterface, EntityReferencePagerInterface
+from openassetio.managerApi import ManagerInterface, EntityReferencePagerInterface, ManagerUIBase
 from openassetio.trait import TraitsData
 
 from openassetio_mediacreation.traits.lifecycle import VersionTrait, StableTrait
@@ -52,6 +52,100 @@ from . import bal
 __all__ = [
     "BasicAssetLibraryInterface",
 ]
+
+from PySide2.QtWidgets import (
+    QWidget,
+    QHBoxLayout,
+    QVBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QDialog,
+    QDialogButtonBox,
+    QComboBox,
+    QListWidget,
+    QListWidgetItem,
+)
+from PySide2.QtCore import Qt
+
+
+class EntityReferenceUIDelegate(ManagerUIBase):
+    def __init__(self):
+        ManagerUIBase.__init__(self)
+        self.callback = None
+
+        self.widget = EntityReferenceWidget()
+
+        self.widget.textbox.textChanged.connect(self.on_text_changed)
+
+    def getWidget(self):
+        return self.widget
+
+    def setEntityChosenCallback(self, callback):
+        """
+        Override ManagerUIBase method to set the callback for when an
+        entity is chosen.
+        """
+        self.callback = callback
+
+    def on_text_changed(self, text):
+        if self.callback is not None:
+            self.callback(EntityReference("bal:///" + text))
+
+
+class EntityReferenceWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.layout = QHBoxLayout(self)
+        self.textbox = QLineEdit(self)
+        self.textbox.setStyleSheet("color: #111111;;background-color: #aaaaaa;font-weight: bold")
+        self.layout.addWidget(self.textbox)
+
+        self.button = QPushButton("Browse Assets", self)
+        self.layout.addWidget(self.button)
+
+        self.dialog = AssetBrowserDialog(self)
+        self.button.clicked.connect(self.dialog.exec_)
+
+        self.dialog.accepted.connect(self.set_textbox_text)
+
+    def set_textbox_text(self):
+        self.textbox.setText(self.dialog.selected_label)
+
+
+class AssetBrowserDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.layout = QVBoxLayout(self)
+
+        self.labels = [
+            "project_artwork/logos/openassetio/v1",
+            "project_artwork/logos/openassetio/v2",
+        ]
+        self.list_widget = QListWidget(self)
+        for label in self.labels:
+            QListWidgetItem(label, self.list_widget)
+        self.layout.addWidget(self.list_widget)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        self.layout.addWidget(self.button_box)
+
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+
+    @property
+    def selected_label(self):
+        return self.list_widget.currentItem().text()
+
+    def exec_(self):
+        # Check if the current text in the textbox matches any of the labels
+        current_text = self.parent().textbox.text()
+        items = self.list_widget.findItems(current_text, Qt.MatchExactly)
+        if items:
+            self.list_widget.setCurrentItem(items[0])
+        super().exec_()
+
 
 SETTINGS_KEY_LIBRARY_PATH = "library_path"
 SETTINGS_KEY_SIMULATED_QUERY_LATENCY = "simulated_query_latency_ms"
@@ -468,6 +562,9 @@ class BasicAssetLibraryInterface(ManagerInterface):
                 )
             except Exception as exc:  # pylint: disable=broad-except
                 self.__handle_exception(exc, idx, errorCallback)
+
+    def uiDelegate(self, traitSet, access, hostSession):
+        return EntityReferenceUIDelegate()
 
     def __get_relations(self, entity_info, relationship_traits_data, result_trait_set):
         """
