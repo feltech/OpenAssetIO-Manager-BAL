@@ -25,6 +25,7 @@ import re
 import time
 
 from functools import wraps
+from logging import Manager
 from typing import Iterable, List, Any
 from urllib.parse import urlparse, parse_qs
 
@@ -39,6 +40,7 @@ from openassetio.access import (
 from openassetio.errors import BatchElementError, ConfigurationException
 from openassetio.managerApi import ManagerInterface, EntityReferencePagerInterface
 from openassetio.trait import TraitsData
+from openassetio.managerApi import ManagerStateBase
 
 from openassetio_mediacreation.traits.lifecycle import VersionTrait, StableTrait
 from openassetio_mediacreation.specifications.lifecycle import (
@@ -154,6 +156,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
             ManagerInterface.Capability.kRelationshipQueries,
             ManagerInterface.Capability.kExistenceQueries,
             ManagerInterface.Capability.kDefaultEntityReferences,
+            ManagerInterface.Capability.kStatefulContexts,
         ):
             return True
 
@@ -607,6 +610,12 @@ class BasicAssetLibraryInterface(ManagerInterface):
             except Exception as exc:  # pylint: disable=broad-except
                 self.__handle_exception(exc, idx, errorCallback)
 
+    def createState(self, hostSession):
+        return BALManagerState(self, self.__library)
+
+    def createChildState(self, parentState, hostSession):
+        return parentState
+
     def __get_relations(self, entity_info, relationship_traits_data, result_trait_set):
         """
         Retrieves relations based on the supplied traits data, by
@@ -891,3 +900,11 @@ class BALEntityReferencePagerInterface(EntityReferencePagerInterface):
     @simulated_delay
     def get(self, _hostSession):
         return self.__pages[self.__page_num] if self.__page_num < len(self.__pages) else []
+
+
+class BALManagerState(ManagerStateBase):
+    def __init__(self, manager, library):
+        super().__init__()
+        self.manager = manager
+        self.library = library
+
