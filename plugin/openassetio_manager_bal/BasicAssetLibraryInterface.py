@@ -39,6 +39,7 @@ from openassetio.access import (
 from openassetio.errors import BatchElementError, ConfigurationException
 from openassetio.managerApi import ManagerInterface, EntityReferencePagerInterface
 from openassetio.trait import TraitsData
+from openassetio.managerApi import ManagerStateBase
 
 from openassetio_mediacreation.traits.lifecycle import VersionTrait, StableTrait
 from openassetio_mediacreation.specifications.lifecycle import (
@@ -154,6 +155,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
             ManagerInterface.Capability.kRelationshipQueries,
             ManagerInterface.Capability.kExistenceQueries,
             ManagerInterface.Capability.kDefaultEntityReferences,
+            ManagerInterface.Capability.kStatefulContexts,
         ):
             return True
 
@@ -236,7 +238,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
         #    set to indicate it can be resolved.
 
         return [
-            self.__dict_to_traits_data(
+            self.dict_to_traits_data(
                 bal.management_policy(trait_set, kAccessNames[int(access)], self.__library)
             )
             for trait_set in traitSets
@@ -269,7 +271,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
                 # Entity can legitimately be None, meaning query was OK
                 # but there is no suitable default.
                 if entity_name is not None:
-                    entity_ref = self.__build_entity_ref(
+                    entity_ref = self.build_entity_ref(
                         bal.EntityInfo(
                             name=entity_name,
                             access=kAccessNames[defaultEntityAccess],
@@ -289,7 +291,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
         for idx, ref in enumerate(entityRefs):
             try:
                 # Use resolve-for-read access mode as closest analog.
-                entity_info = self.__parse_entity_ref(ref.toString(), ResolveAccess.kRead)
+                entity_info = self.parse_entity_ref(ref.toString(), ResolveAccess.kRead)
                 result = bal.exists(entity_info, self.__library)
                 successCallback(idx, result)
             except Exception as exc:  # pylint: disable=broad-except
@@ -301,7 +303,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
     ):
         for idx, ref in enumerate(entityRefs):
             try:
-                entity_info = self.__parse_entity_ref(ref.toString(), entityTraitsAccess)
+                entity_info = self.parse_entity_ref(ref.toString(), entityTraitsAccess)
 
                 if entityTraitsAccess == EntityTraitsAccess.kRead:
                     entity = bal.entity(entity_info, self.__library)
@@ -347,7 +349,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
 
         for idx, ref in enumerate(entityReferences):
             try:
-                entity_info = self.__parse_entity_ref(ref.toString(), access)
+                entity_info = self.parse_entity_ref(ref.toString(), access)
                 entity = bal.entity(entity_info, self.__library)
 
                 # Ensure this entity supports the type of access
@@ -403,7 +405,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
             if not self.__validate_publish_policy(traitsDatas[idx], access, idx, errorCallback):
                 continue
             try:
-                entity_info = self.__parse_entity_ref(ref.toString(), access)
+                entity_info = self.parse_entity_ref(ref.toString(), access)
 
                 if not self.__validate_publish_entity_traits(
                     entity_info, traitsDatas[idx].traitSet(), idx, errorCallback
@@ -413,7 +415,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
                 # will always create a new version.
                 # TODO(tc): Create a placeholder version
                 entity_info.version = None
-                successCallback(idx, self.__build_entity_ref(entity_info))
+                successCallback(idx, self.build_entity_ref(entity_info))
             except Exception as exc:  # pylint: disable=broad-except
                 self.__handle_exception(exc, idx, errorCallback)
 
@@ -456,7 +458,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
                 continue
 
             try:
-                entity_info = self.__parse_entity_ref(ref.toString(), access)
+                entity_info = self.parse_entity_ref(ref.toString(), access)
 
                 if not self.__validate_publish_entity_traits(
                     entity_info, entityTraitsDatas[idx].traitSet(), idx, errorCallback
@@ -467,7 +469,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
                 updated_entity_info = bal.create_or_update_entity(
                     entity_info, traits_dict, self.__library
                 )
-                successCallback(idx, self.__build_entity_ref(updated_entity_info))
+                successCallback(idx, self.build_entity_ref(updated_entity_info))
             except Exception as exc:  # pylint: disable=broad-except
                 self.__handle_exception(exc, idx, errorCallback)
 
@@ -542,7 +544,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
             return
         for idx, entity_ref in enumerate(entityReferences):
             try:
-                entity_info = self.__parse_entity_ref(entity_ref.toString(), access)
+                entity_info = self.parse_entity_ref(entity_ref.toString(), access)
                 relations = self.__get_relations(
                     entity_info, relationshipTraitsData, resultTraitSet
                 )
@@ -551,7 +553,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
                     BALEntityReferencePagerInterface(
                         self.simulated_latency,
                         pageSize,
-                        [self.__build_entity_ref(info) for info in relations],
+                        [self.build_entity_ref(info) for info in relations],
                     ),
                 )
             except Exception as exc:  # pylint: disable=broad-except
@@ -594,18 +596,24 @@ class BasicAssetLibraryInterface(ManagerInterface):
             return
         for idx, relationship in enumerate(relationshipTraitsDatas):
             try:
-                entity_info = self.__parse_entity_ref(entityReference.toString(), access)
+                entity_info = self.parse_entity_ref(entityReference.toString(), access)
                 relations = self.__get_relations(entity_info, relationship, resultTraitSet)
                 successCallback(
                     idx,
                     BALEntityReferencePagerInterface(
                         self.simulated_latency,
                         pageSize,
-                        [self.__build_entity_ref(info) for info in relations],
+                        [self.build_entity_ref(info) for info in relations],
                     ),
                 )
             except Exception as exc:  # pylint: disable=broad-except
                 self.__handle_exception(exc, idx, errorCallback)
+
+    def createState(self, hostSession):
+        return BALManagerState(self, self.__library)
+
+    def createChildState(self, parentState, hostSession):
+        return parentState
 
     def __get_relations(self, entity_info, relationship_traits_data, result_trait_set):
         """
@@ -680,7 +688,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
         )
 
     @classmethod
-    def __parse_entity_ref(cls, entity_ref: str, access) -> bal.EntityInfo:
+    def parse_entity_ref(cls, entity_ref: str, access) -> bal.EntityInfo:
         """
         Decomposes an entity reference into bal fields.
         """
@@ -726,7 +734,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
 
         return v
 
-    def __build_entity_ref(self, entity_info: bal.EntityInfo) -> EntityReference:
+    def build_entity_ref(self, entity_info: bal.EntityInfo) -> EntityReference:
         """
         Builds an openassetio EntityReference from a BAL EntityInfo
         """
@@ -739,7 +747,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
         return f"{self.__settings[SETTINGS_KEY_ENTITY_REFERENCE_URL_SCHEME]}:///"
 
     @classmethod
-    def __dict_to_traits_data(cls, traits_dict: dict):
+    def dict_to_traits_data(cls, traits_dict: dict):
         traits_data = TraitsData()
         for trait_id, trait_properties in traits_dict.items():
             cls.__add_trait_to_traits_data(trait_id, trait_properties, traits_data)
@@ -891,3 +899,11 @@ class BALEntityReferencePagerInterface(EntityReferencePagerInterface):
     @simulated_delay
     def get(self, _hostSession):
         return self.__pages[self.__page_num] if self.__page_num < len(self.__pages) else []
+
+
+class BALManagerState(ManagerStateBase):
+    def __init__(self, manager, library):
+        super().__init__()
+        self.manager = manager
+        self.library = library
+

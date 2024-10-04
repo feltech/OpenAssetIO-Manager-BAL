@@ -51,6 +51,7 @@ import os
 # of the actual implementation until it is needed by the
 # PythonPluginSystemManagerPlugin's implementation.
 from openassetio.pluginSystem import PythonPluginSystemManagerPlugin
+from openassetio.ui.pluginSystem.PythonPluginSystemUIDelegatePlugin import PythonPluginSystemUIDelegatePlugin
 
 from .BasicAssetLibraryInterface import ENV_VAR_IDENTIFIER_OVERRIDE, DEFAULT_IDENTIFIER
 
@@ -62,8 +63,8 @@ class BasicAssetLibraryPlugin(PythonPluginSystemManagerPlugin):
     interfaces and returning them to the host.
     """
 
-    @staticmethod
-    def identifier():
+    @classmethod
+    def identifier(cls):
         return os.getenv(ENV_VAR_IDENTIFIER_OVERRIDE, DEFAULT_IDENTIFIER)
 
     @classmethod
@@ -77,3 +78,24 @@ class BasicAssetLibraryPlugin(PythonPluginSystemManagerPlugin):
 # A plugin is only considered if it exposes a `plugin` variable at this
 # level, holding a class derived from PythonPluginSystemManagerPlugin.
 plugin = BasicAssetLibraryPlugin
+
+
+class BasicAssetLibraryUIPlugin(PythonPluginSystemUIDelegatePlugin):
+    """
+    The PythonPluginSystemUIDelegatePlugin is responsible for constructing
+    instances of the uiDelegate's implementation of the OpenAssetIO
+    interfaces and returning them to the host.
+    """
+
+    @classmethod
+    def identifier(cls):
+        return os.getenv(ENV_VAR_IDENTIFIER_OVERRIDE, DEFAULT_IDENTIFIER)
+
+    @classmethod
+    def interface(cls):
+        from .ui.BasicAssetLibraryUIInterface import BasicAssetLibraryUIInterface
+
+        return BasicAssetLibraryUIInterface()
+
+
+openassetioUIPlugin = BasicAssetLibraryUIPlugin
