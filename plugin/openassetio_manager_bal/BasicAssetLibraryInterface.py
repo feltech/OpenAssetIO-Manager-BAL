@@ -292,7 +292,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
         for idx, ref in enumerate(entityRefs):
             try:
                 # Use resolve-for-read access mode as closest analog.
-                entity_info = self.__parse_entity_ref(ref.toString(), ResolveAccess.kRead)
+                entity_info = self.parse_entity_ref(ref.toString(), ResolveAccess.kRead)
                 result = bal.exists(entity_info, self.__library)
                 successCallback(idx, result)
             except Exception as exc:  # pylint: disable=broad-except
@@ -304,7 +304,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
     ):
         for idx, ref in enumerate(entityRefs):
             try:
-                entity_info = self.__parse_entity_ref(ref.toString(), entityTraitsAccess)
+                entity_info = self.parse_entity_ref(ref.toString(), entityTraitsAccess)
 
                 if entityTraitsAccess == EntityTraitsAccess.kRead:
                     entity = bal.entity(entity_info, self.__library)
@@ -350,7 +350,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
 
         for idx, ref in enumerate(entityReferences):
             try:
-                entity_info = self.__parse_entity_ref(ref.toString(), access)
+                entity_info = self.parse_entity_ref(ref.toString(), access)
                 entity = bal.entity(entity_info, self.__library)
 
                 # Ensure this entity supports the type of access
@@ -406,7 +406,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
             if not self.__validate_publish_policy(traitsDatas[idx], access, idx, errorCallback):
                 continue
             try:
-                entity_info = self.__parse_entity_ref(ref.toString(), access)
+                entity_info = self.parse_entity_ref(ref.toString(), access)
 
                 if not self.__validate_publish_entity_traits(
                     entity_info, traitsDatas[idx].traitSet(), idx, errorCallback
@@ -459,7 +459,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
                 continue
 
             try:
-                entity_info = self.__parse_entity_ref(ref.toString(), access)
+                entity_info = self.parse_entity_ref(ref.toString(), access)
 
                 if not self.__validate_publish_entity_traits(
                     entity_info, entityTraitsDatas[idx].traitSet(), idx, errorCallback
@@ -545,7 +545,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
             return
         for idx, entity_ref in enumerate(entityReferences):
             try:
-                entity_info = self.__parse_entity_ref(entity_ref.toString(), access)
+                entity_info = self.parse_entity_ref(entity_ref.toString(), access)
                 relations = self.__get_relations(
                     entity_info, relationshipTraitsData, resultTraitSet
                 )
@@ -597,7 +597,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
             return
         for idx, relationship in enumerate(relationshipTraitsDatas):
             try:
-                entity_info = self.__parse_entity_ref(entityReference.toString(), access)
+                entity_info = self.parse_entity_ref(entityReference.toString(), access)
                 relations = self.__get_relations(entity_info, relationship, resultTraitSet)
                 successCallback(
                     idx,
@@ -689,7 +689,7 @@ class BasicAssetLibraryInterface(ManagerInterface):
         )
 
     @classmethod
-    def __parse_entity_ref(cls, entity_ref: str, access) -> bal.EntityInfo:
+    def parse_entity_ref(cls, entity_ref: str, access) -> bal.EntityInfo:
         """
         Decomposes an entity reference into bal fields.
         """

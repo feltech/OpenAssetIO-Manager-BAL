@@ -8,12 +8,24 @@ from openassetio.ui.managerApi import UIDelegateInterface
 from openassetio.ui import UIDelegateState, UIDelegateRequest, access
 from openassetio_mediacreation.traits.identity import DisplayNameTrait
 from openassetio_mediacreation.traits.content import LocatableContentTrait
-from openassetio_mediacreation.traits.ui import SingularTrait
+from openassetio_mediacreation.traits.ui import (
+    SingularTrait,
+    TabbedTrait,
+    InPlaceTrait,
+    DetachedTrait,
+    BrowserTrait,
+    EntityProviderTrait,
+    InlineTrait,
+    EntityInfoTrait,
+)
 
 from ..BasicAssetLibraryInterface import (
     ENV_VAR_IDENTIFIER_OVERRIDE,
     DEFAULT_IDENTIFIER,
 )
+
+from .. import bal
+from ..BasicAssetLibraryInterface import BasicAssetLibraryInterface
 
 
 class BasicAssetLibraryUIInterface(UIDelegateInterface):
@@ -33,27 +45,52 @@ class BasicAssetLibraryUIInterface(UIDelegateInterface):
         #     "localhost", port=12345, stdoutToServer=True, stderrToServer=True, suspend=False
         # )
         # Get Qt widget container
-        container: QtWidgets.QTabWidget = uiDelegateRequest.nativeData
-        if uiAccess == access.UIAccess.kRead:
-            browser = self.__create_read_asset_browser(
+        uiState = UIDelegateState()
+        if BrowserTrait.isImbuedTo(uiTraits) and EntityProviderTrait.isImbuedTo(uiTraits):
+            if uiAccess == access.UIAccess.kRead:
+                widget = self.__create_read_asset_browser(
+                    context.managerState.manager,
+                    context.managerState.library,
+                    uiTraits,
+                    uiDelegateRequest,
+                )
+            else:
+                widget = self.__create_write_asset_browser(
+                    context.managerState.manager,
+                    context.managerState.library,
+                    uiTraits,
+                    uiDelegateRequest,
+                )
+        elif InlineTrait.isImbuedTo(uiTraits) and EntityProviderTrait.isImbuedTo(uiTraits):
+            widget = self.__create_inline_entity_box(
                 context.managerState.manager,
                 context.managerState.library,
                 uiTraits,
                 uiDelegateRequest,
+                uiState,
+                uiAccess,
+            )
+        elif InlineTrait.isImbuedTo(uiTraits) and EntityInfoTrait.isImbuedTo(uiTraits):
+            widget = self.__create_inline_entity_info(
+                context.managerState.library, uiDelegateRequest, uiAccess, uiState
             )
         else:
-            browser = self.__create_write_asset_browser(
-                context.managerState.manager,
-                context.managerState.library,
-                uiTraits,
-                uiDelegateRequest,
-            )
+            return None
 
         # Add a tab to the container.
-        tab_idx = container.addTab(browser, "BAL's Asset Browser")
-        container.setCurrentIndex(tab_idx)
+        if InPlaceTrait.isImbuedTo(uiTraits):
+            container = uiDelegateRequest.nativeData
+            if container is not None:
+                if TabbedTrait.isImbuedTo(uiTraits):
+                    tab_idx = container.addTab(widget, "BAL's Asset Browser")
+                    container.setCurrentIndex(tab_idx)
+                else:
+                    container.layout().addWidget(widget)
 
-        return UIDelegateState(nativeData=browser)
+        if DetachedTrait.isImbuedTo(uiTraits):
+            uiState.nativeData = widget
+
+        return uiState
 
     def __create_write_asset_browser(self, manager, library, ui_traits: TraitsData, request):
         # Create browser.
@@ -294,6 +331,142 @@ class BasicAssetLibraryUIInterface(UIDelegateInterface):
         cancel_button.clicked.connect(lambda: request.stateChangedCallback(UIDelegateState()))
 
         return browser
+
+    def __create_inline_entity_box(self, manager, library, uiTraits, uiRequest, uiState, uiAccess):
+        # Create a horizontal layout
+        layout = QtWidgets.QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+
+        # Create a faded label with the text "bal:///"
+        prefix_label = QtWidgets.QLabel("bal:///")
+        # Create a new color with reduced opacity
+        faded_color = prefix_label.palette().color(QtGui.QPalette.ColorRole.WindowText)
+        faded_color.setAlpha(128)
+        palette = prefix_label.palette()
+        palette.setColor(QtGui.QPalette.ColorRole.WindowText, faded_color)
+        prefix_label.setPalette(palette)
+        layout.addWidget(prefix_label)
+
+        # Create an autocomplete single-line text box for entity selection
+        entity_input = QtWidgets.QLineEdit()
+        entity_completer = QtWidgets.QCompleter()
+        entity_input.setCompleter(entity_completer)
+
+        # Set up the completer model
+        entity_model = QtCore.QStringListModel()
+        entity_model.setStringList(library["entities"].keys())
+        entity_completer.setModel(entity_model)
+
+        layout.addWidget(entity_input)
+
+        # Create a dropdown for version selection
+        version_dropdown = QtWidgets.QComboBox()
+        layout.addWidget(version_dropdown)
+
+        def update_versions():
+            entity_id = entity_input.text()
+            version_dropdown.clear()
+
+            if library["entities"].get(entity_id) is None:
+                return
+
+            # Get versions for the selected entity
+            versions = list(
+                reversed(
+                    [f"v{n + 1}" for n in range(len(library["entities"][entity_id]["versions"]))]
+                )
+            )
+            if not versions:
+                # Empty versions lists is legit. E.g. overrideByAccess
+                # used instead.
+                return
+            version_dropdown.addItems(versions)
+            version_num = version_dropdown.count()
+            selected_value = f"bal:///{entity_id}?v={version_num}"
+
+            uiState.entityReferences = [manager._createEntityReference(selected_value)]
+            uiRequest.stateChangedCallback(uiState)
+
+        def select_version():
+            entity_id = entity_input.text()
+            if library["entities"].get(entity_id) is None:
+                return
+            if not version_dropdown.count():
+                return
+            version_num = version_dropdown.count() - version_dropdown.currentIndex()
+            selected_value = f"bal:///{entity_id}?v={version_num}"
+            uiState.entityReferences = [manager._createEntityReference(selected_value)]
+            uiRequest.stateChangedCallback(uiState)
+
+        # Connect signals
+        entity_input.textChanged.connect(update_versions)
+        version_dropdown.currentIndexChanged.connect(select_version)
+
+        # Create a widget to hold the layout
+        widget = QtWidgets.QWidget()
+        widget.setLayout(layout)
+
+        def on_update_request(uiRequest):
+            if uiRequest.entityReferences:
+                entity_ref_str = uiRequest.entityReferences[0].toString()
+
+                entity_info = BasicAssetLibraryInterface.parse_entity_ref(entity_ref_str, uiAccess)
+                entity_input.setText(entity_info.name)
+                update_versions()
+                if entity_info.version is not None:
+                    version_dropdown.setCurrentText(f"v{entity_info.version}")
+
+        uiState.updateRequestCallback = on_update_request
+        on_update_request(uiRequest)
+
+        return widget
+
+    def __create_inline_entity_info(self, library, uiRequest, uiAccess, uiState):
+        layout = QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+
+        display_name = QtWidgets.QLabel()
+
+        h_layout = QtWidgets.QHBoxLayout()
+        h_layout.addStretch(1)
+        h_layout.addWidget(display_name)
+        h_layout.addStretch(1)
+        layout.addLayout(h_layout)
+
+        comment_box = QtWidgets.QTextEdit()
+        layout.addWidget(comment_box)
+        # Make it non-editable
+        comment_box.setReadOnly(True)
+
+        # Set a fixed height for 5 lines of text
+        font_metrics = QtGui.QFontMetrics(comment_box.font())
+        line_spacing = font_metrics.lineSpacing()
+        comment_box.setFixedHeight(5 * line_spacing)
+        # Enable vertical scrollbar
+        comment_box.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        def update_request_cb(updated_request):
+            if updated_request.entityReferences:
+                entity_ref_str = updated_request.entityReferences[0].toString()
+                entity_info = BasicAssetLibraryInterface.parse_entity_ref(entity_ref_str, uiAccess)
+                entity = bal.entity(entity_info, library)
+                # Set the text
+                display_name.setText(
+                    entity.traits.get(DisplayNameTrait.kId, {}).get("name", "unknown")
+                )
+                comment_box.setText(entity.traits.get("bal:custom", {}).get("comment", "N/A"))
+
+        update_request_cb(uiRequest)
+
+        uiState.updateRequestCallback = update_request_cb
+
+        widget = QtWidgets.QWidget()
+        widget.setLayout(layout)
+        return widget
 
 
 def entity_has_requested_traits(entity_version, requested_entity_traits_datas):
